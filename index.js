@@ -7,7 +7,11 @@ const app = express();
 const port = 5001;
 dotenv.config();
 const WebSocket = require("ws");
+const crypto = require("crypto");
+const jwt = require("jsonwebtoken");
+const cookie = require("cookie");
 
+// Check for required environment variables
 // Create the HTTP server first
 const server = app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
@@ -47,7 +51,8 @@ wss.on("connection", (ws) => {
 app.use(express.json());
 app.use(
   cors({
-    origin: "*",
+    origin: process.env.NEXT_FRONTEND_URL,
+    credentials: true, // Allow credentials (cookies , authorization headers, etc.)
   })
 );
 
@@ -306,6 +311,83 @@ async function startDefaultMonitoring() {
 }
 
 // API Endpoints
+
+// login endpoint
+app.post("/login", (req, res) => {
+  const { admin_email, admin_password } = req.body;
+
+  if (!admin_email || !admin_password) {
+    return res.status(400).json({ message: "Email and password are required" });
+  }
+
+  const { ADMIN_EMAIL, ADMIN_PASSWORD, JWT_SECRET } = process.env;
+
+  if (!ADMIN_EMAIL || !ADMIN_PASSWORD || !JWT_SECRET) {
+    return res.status(500).json({ message: "Server configuration error" });
+  }
+
+  if (admin_email === ADMIN_EMAIL && admin_password === ADMIN_PASSWORD) {
+    const token = jwt.sign({ email: admin_email, role: "admin" }, JWT_SECRET, {
+      expiresIn: "3d", // Set JWT expiration to 3 days
+    });
+
+    // Set HTTP-only cookie
+    res.setHeader(
+      "Set-Cookie",
+      `token=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=259200`
+    );
+
+    return res.status(200).json({ message: "Authenticated successfully" });
+  }
+
+  return res.status(401).json({ message: "Invalid credentials" });
+});
+
+app.get("/verify", (req, res) => {
+  try {
+    // Parse cookies from request
+    const cookies = cookie.parse(req.headers.cookie || "");
+    const token = cookies.token;
+
+    if (!token) {
+      return res.status(401).json({
+        authenticated: false,
+        message: "No authentication token found",
+      });
+    }
+
+    // Verify JWT
+    const { JWT_SECRET } = process.env;
+    if (!JWT_SECRET) {
+      throw new Error("JWT secret not configured");
+    }
+
+    const decoded = jwt.verify(token, JWT_SECRET);
+
+    return res.status(200).json({
+      authenticated: true,
+      user: {
+        email: decoded.email,
+        role: decoded.role,
+      },
+    });
+  } catch (error) {
+    console.error("Verification error:", error);
+    return res.status(401).json({
+      authenticated: false,
+      message: error instanceof Error ? error.message : "Invalid token",
+    });
+  }
+});
+
+//logout endpoint and to set the jwt age to 0 (the token will be removed from cookie)
+app.post("/logout", (req, res) => {
+  res.setHeader(
+    "Set-Cookie",
+    "token=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"
+  );
+  return res.status(200).json({ message: "Logged out successfully" });
+});
 
 // Get all connected accounts
 app.get("/accounts", (req, res) => {
