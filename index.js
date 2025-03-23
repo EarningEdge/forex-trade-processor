@@ -13,6 +13,8 @@ const cookie = require("cookie");
 
 // Check for required environment variables
 // Create the HTTP server first
+const orderHistory = {};
+
 const server = app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
   startDefaultMonitoring();
@@ -67,6 +69,11 @@ const activeConnections = [];
 class OrderSyncListener {
   constructor(accountId) {
     this.accountId = accountId;
+
+    // Initialize order history array for this account if it doesn't exist
+    if (!orderHistory[this.accountId]) {
+      orderHistory[this.accountId] = [];
+    }
   }
 
   onOrderUpdated(orderId, order) {
@@ -81,6 +88,15 @@ class OrderSyncListener {
       `[Account: ${this.accountId}] Order completed: ${orderId}`,
       order
     );
+
+    // Store completed order in history
+    const historyEntry = {
+      ...order,
+      orderId,
+      completedAt: new Date().toISOString(),
+    };
+    orderHistory[this.accountId].push(historyEntry);
+
     wsConnections.forEach((ws) => {
       ws.send(
         JSON.stringify({
@@ -113,6 +129,32 @@ class OrderSyncListener {
 
   onDealAdded(dealId, deal) {
     console.log(`[Account: ${this.accountId}] Deal added: ${dealId}`, deal);
+
+    // If we have deal data, also store it in history with the deal
+    const historyEntry = {
+      ...deal,
+      dealId,
+      recordedAt: new Date().toISOString(),
+    };
+
+    // Initialize deals history if it doesn't exist
+    if (!orderHistory[this.accountId].deals) {
+      orderHistory[this.accountId].deals = [];
+    }
+
+    orderHistory[this.accountId].deals.push(historyEntry);
+
+    // Notify clients about the new deal
+    wsConnections.forEach((ws) => {
+      ws.send(
+        JSON.stringify({
+          event: "dealAdded",
+          accountId: this.accountId,
+          dealId,
+          deal: historyEntry,
+        })
+      );
+    });
   }
 
   onConnected() {
@@ -180,6 +222,14 @@ class OrderSyncListener {
         })
       );
     });
+  }
+
+  // Add this method to handle symbol price updates
+  onSymbolPriceUpdated(symbol, price) {
+    // You can leave this empty if you don't need to process price updates
+    // Or you can add processing code here if needed
+    // For debugging, you can uncomment the line below
+    // console.log(`[Account: ${this.accountId}] Symbol price updated: ${symbol}`, price);
   }
 }
 
@@ -458,6 +508,99 @@ app.get("/accounts/:accountId/orders", (req, res) => {
 
   const orders = connection.connection.terminalState.orders;
   res.json(orders);
+});
+
+// Get account order history - simplified approach using in-memory storage
+app.get("/accounts/:accountId/order-history", (req, res) => {
+  const { accountId } = req.params;
+  const connection = activeConnections.find(
+    (conn) => conn.accountId === accountId
+  );
+
+  if (!connection) {
+    return res.status(404).json({ error: "Account not found" });
+  }
+
+  try {
+    // Get optional query parameters for filtering
+    const { startDate, endDate, symbol, type } = req.query;
+
+    // Get history from our in-memory storage
+    let history = orderHistory[accountId] || [];
+
+    // Apply filters if provided
+    if (startDate) {
+      history = history.filter((order) => order.completedAt >= startDate);
+    }
+
+    if (endDate) {
+      history = history.filter((order) => order.completedAt <= endDate);
+    }
+
+    if (symbol) {
+      history = history.filter((order) => order.symbol === symbol);
+    }
+
+    if (type) {
+      history = history.filter((order) => order.type === type);
+    }
+
+    // Sort by completion date (newest first)
+    history.sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt));
+
+    res.json(history);
+  } catch (error) {
+    console.error(`Error fetching history for account ${accountId}:`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Add deal history endpoint using in-memory storage
+app.get("/accounts/:accountId/deal-history", (req, res) => {
+  const { accountId } = req.params;
+  const connection = activeConnections.find(
+    (conn) => conn.accountId === accountId
+  );
+
+  if (!connection) {
+    return res.status(404).json({ error: "Account not found" });
+  }
+
+  try {
+    // Get optional query parameters for filtering
+    const { startDate, endDate, symbol, type } = req.query;
+
+    // Get deals from our in-memory storage
+    let deals = orderHistory[accountId]?.deals || [];
+
+    // Apply filters if provided
+    if (startDate) {
+      deals = deals.filter((deal) => deal.recordedAt >= startDate);
+    }
+
+    if (endDate) {
+      deals = deals.filter((deal) => deal.recordedAt <= endDate);
+    }
+
+    if (symbol) {
+      deals = deals.filter((deal) => deal.symbol === symbol);
+    }
+
+    if (type) {
+      deals = deals.filter((deal) => deal.type === type);
+    }
+
+    // Sort by recorded date (newest first)
+    deals.sort((a, b) => new Date(b.recordedAt) - new Date(a.recordedAt));
+
+    res.json(deals);
+  } catch (error) {
+    console.error(
+      `Error fetching deal history for account ${accountId}:`,
+      error
+    );
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Add and connect to a new account
