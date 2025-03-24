@@ -438,54 +438,12 @@ app.post("/login", (req: Request, res: any) => {
       expiresIn: "3d", // Set JWT expiration to 3 days
     });
 
-    // Set HTTP-only cookie
-    res.setHeader(
-      "Set-Cookie",
-      `token=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=259200`
-    );
-
-    return res.status(200).json({ message: "Authenticated successfully" });
+    return res.status(200).json({ message: "Authenticated successfully", token });
   }
 
   return res.status(401).json({ message: "Invalid credentials" });
 });
 
-app.get("/verify", (req: any, res: any) => {
-  try {
-    // Parse cookies from request
-    const cookies = cookie.parse(req.headers.cookie || "");
-    const token = cookies.token;
-
-    if (!token) {
-      return res.status(401).json({
-        authenticated: false,
-        message: "No authentication token found",
-      });
-    }
-
-    // Verify JWT
-    const { JWT_SECRET } = process.env;
-    if (!JWT_SECRET) {
-      throw new Error("JWT secret not configured");
-    }
-
-    const decoded = jwt.verify(token, JWT_SECRET);
-
-    return res.status(200).json({
-      authenticated: true,
-      user: {
-        email: (decoded as any).email,
-        role: (decoded as any).role,
-      },
-    });
-  } catch (error) {
-    console.error("Verification error:", error);
-    return res.status(401).json({
-      authenticated: false,
-      message: error instanceof Error ? error.message : "Invalid token",
-    });
-  }
-});
 
 //logout endpoint and to set the jwt age to 0 (the token will be removed from cookie)
 app.post("/logout", (req: any, res: any) => {
