@@ -1,34 +1,29 @@
-let MetaApi = require("metaapi.cloud-sdk").default;
-const dotenv = require("dotenv");
-const fs = require("fs");
-const express = require("express");
-const cors = require("cors");
+import dotenv from "dotenv";
+import express, { Request, Response } from "express";
+import cors from "cors";
+import WebSocket from "ws";
+import jwt from "jsonwebtoken";
+import cookie from "cookie";
+import MetaApi from "metaapi.cloud-sdk";
+
 const app = express();
 const port = 5001;
 dotenv.config();
-const WebSocket = require("ws");
-const crypto = require("crypto");
-const jwt = require("jsonwebtoken");
-const cookie = require("cookie");
 
-// Check for required environment variables
-// Create the HTTP server first
-const orderHistory = {};
+const orderHistory: Record<string, any> = {};
 
 const server = app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
   startDefaultMonitoring();
 });
 
-// Create WebSocket server attached to the HTTP server
 const wss = new WebSocket.Server({ server });
-const wsConnections = [];
+const wsConnections: WebSocket[] = [];
 
 wss.on("connection", (ws) => {
   console.log("Client connected");
   wsConnections.push(ws);
 
-  // Send current accounts data to new connections
   ws.send(
     JSON.stringify({
       event: "initialAccounts",
@@ -54,36 +49,38 @@ app.use(express.json());
 app.use(
   cors({
     origin: process.env.NEXT_FRONTEND_URL,
-    credentials: true, // Allow credentials (cookies , authorization headers, etc.)
+    credentials: true,
   })
 );
 
-// Initialize MetaAPI with token
+const api = new MetaApi(process.env.METATRADER_API_KEY || "");
 
-const api = new MetaApi(process.env.METATRADER_API_KEY);
+const activeConnections: {
+  accountId: string;
+  account: any;
+  connection: any;
+  listener: any;
+  initialState: string;
+}[] = [];
 
-// Track active account connections
-const activeConnections = [];
-
-// Create a synchronization listener to track real-time events
 class OrderSyncListener {
-  constructor(accountId) {
+  accountId: string;
+  constructor(accountId: string) {
     this.accountId = accountId;
 
-    // Initialize order history array for this account if it doesn't exist
     if (!orderHistory[this.accountId]) {
       orderHistory[this.accountId] = [];
     }
   }
 
-  onOrderUpdated(orderId, order) {
+  onOrderUpdated(orderId: string, order: any) {
     console.log(
       `[Account: ${this.accountId}] Order updated: ${orderId}`,
       order
     );
   }
 
-  onOrderCompleted(orderId, order) {
+  onOrderCompleted(orderId: string, order: any) {
     console.log(
       `[Account: ${this.accountId}] Order completed: ${orderId}`,
       order
@@ -109,7 +106,7 @@ class OrderSyncListener {
     });
   }
 
-  onPositionUpdated(positionId, position) {
+  onPositionUpdated(positionId: string, position: any) {
     console.log(
       `[Account: ${this.accountId}] Position updated: ${positionId}`,
       position
@@ -127,7 +124,7 @@ class OrderSyncListener {
     });
   }
 
-  onDealAdded(dealId, deal) {
+  onDealAdded(dealId: string, deal: any) {
     console.log(`[Account: ${this.accountId}] Deal added: ${dealId}`, deal);
 
     // If we have deal data, also store it in history with the deal
@@ -181,7 +178,7 @@ class OrderSyncListener {
     });
   }
 
-  onAccountInformationUpdated(accountInformation) {
+  onAccountInformationUpdated(accountInformation: any) {
     console.log(
       `[Account: ${this.accountId}] Account information updated:`,
       accountInformation
@@ -198,7 +195,7 @@ class OrderSyncListener {
     });
   }
 
-  onPositionsUpdated(positions) {
+  onPositionsUpdated(positions: any) {
     console.log(`[Account: ${this.accountId}] Positions updated:`, positions);
     wsConnections.forEach((ws) => {
       ws.send(
@@ -211,7 +208,7 @@ class OrderSyncListener {
     });
   }
 
-  onPositionRemoved(positionId) {
+  onPositionRemoved(positionId: string) {
     console.log(`[Account: ${this.accountId}] Position removed: ${positionId}`);
     wsConnections.forEach((ws) => {
       ws.send(
@@ -225,16 +222,24 @@ class OrderSyncListener {
   }
 
   // Add this method to handle symbol price updates
-  onSymbolPriceUpdated(symbol, price) {
+  onSymbolPriceUpdated(symbol: string, price: any) {
     // You can leave this empty if you don't need to process price updates
     // Or you can add processing code here if needed
     // For debugging, you can uncomment the line below
     // console.log(`[Account: ${this.accountId}] Symbol price updated: ${symbol}`, price);
   }
+
+  // Add this method to handle symbol price updates
+  onSymbolPricesUpdated(symbolPrices: any) {
+    // Implement to handle batch symbol price updates
+    // This is different from onSymbolPriceUpdated (singular) which handles individual price updates
+    // For debugging, you can uncomment the line below
+    // console.log(`[Account: ${this.accountId}] Symbol prices updated for ${Object.keys(symbolPrices).length} symbols`);
+  }
 }
 
 // Function to connect to an individual account
-async function connectToAccount(accountId) {
+async function connectToAccount(accountId: string) {
   try {
     console.log(`Connecting to account: ${accountId}`);
 
@@ -258,7 +263,7 @@ async function connectToAccount(accountId) {
 
     // Add the synchronization listener to track real-time events
     const listener = new OrderSyncListener(accountId);
-    connection.addSynchronizationListener(listener);
+    connection.addSynchronizationListener(listener as any);
 
     // Wait until terminal state synchronized to the local state
     console.log(
@@ -299,7 +304,7 @@ async function connectToAccount(accountId) {
 }
 
 // Function to disconnect from an account
-async function disconnectFromAccount(accountId) {
+async function disconnectFromAccount(accountId: string) {
   const connectionIndex = activeConnections.findIndex(
     (conn) => conn.accountId === accountId
   );
@@ -350,20 +355,72 @@ async function disconnectFromAccount(accountId) {
 
 // Start monitoring with any default account from .env
 async function startDefaultMonitoring() {
+  // First try to connect to the specified default account if provided
   const defaultAccountId = process.env.ACCOUNT_ID;
 
   if (defaultAccountId) {
-    console.log(`Starting monitoring for default account: ${defaultAccountId}`);
+    console.log(
+      `Starting monitoring for specified default account: ${defaultAccountId}`
+    );
     await connectToAccount(defaultAccountId);
-  } else {
-    console.log("No default account ID found in .env");
+  }
+
+  // Then fetch and connect to all deployed accounts from MetaAPI cloud
+  await fetchAndConnectAllAccounts();
+}
+
+// Fetch all existing accounts from MetaAPI and connect to them
+async function fetchAndConnectAllAccounts() {
+  try {
+    console.log("Fetching all existing accounts from MetaAPI...");
+
+    // Get all accounts with DEPLOYED state from MetaAPI
+    const accounts =
+      await api.metatraderAccountApi.getAccountsWithClassicPagination({
+        state: ["DEPLOYED"],
+      });
+
+    console.log(
+      `Found ${accounts.items.length} deployed accounts in MetaAPI cloud`
+    );
+
+    // Connect to each account that is not already connected
+    let connectedCount = 0;
+
+    for (const account of accounts.items) {
+      // Check if we are already connected to this account
+      const alreadyConnected = activeConnections.some(
+        (conn) => conn.accountId === account.id
+      );
+
+      if (!alreadyConnected) {
+        console.log(
+          `Connecting to existing account: ${account.id} (${
+            account.name || "unnamed"
+          })`
+        );
+        const connected = await connectToAccount(account.id);
+
+        if (connected) {
+          connectedCount++;
+        }
+      } else {
+        console.log(`Account ${account.id} is already connected, skipping`);
+      }
+    }
+
+    console.log(
+      `Successfully connected to ${connectedCount} additional accounts from MetaAPI cloud`
+    );
+  } catch (err) {
+    console.error("Error fetching accounts from MetaAPI:", err);
   }
 }
 
 // API Endpoints
 
 // login endpoint
-app.post("/login", (req, res) => {
+app.post("/login", (req: Request, res: any) => {
   const { admin_email, admin_password } = req.body;
 
   if (!admin_email || !admin_password) {
@@ -393,7 +450,7 @@ app.post("/login", (req, res) => {
   return res.status(401).json({ message: "Invalid credentials" });
 });
 
-app.get("/verify", (req, res) => {
+app.get("/verify", (req: any, res: any) => {
   try {
     // Parse cookies from request
     const cookies = cookie.parse(req.headers.cookie || "");
@@ -417,8 +474,8 @@ app.get("/verify", (req, res) => {
     return res.status(200).json({
       authenticated: true,
       user: {
-        email: decoded.email,
-        role: decoded.role,
+        email: (decoded as any).email,
+        role: (decoded as any).role,
       },
     });
   } catch (error) {
@@ -431,7 +488,7 @@ app.get("/verify", (req, res) => {
 });
 
 //logout endpoint and to set the jwt age to 0 (the token will be removed from cookie)
-app.post("/logout", (req, res) => {
+app.post("/logout", (req: any, res: any) => {
   res.setHeader(
     "Set-Cookie",
     "token=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"
@@ -440,19 +497,25 @@ app.post("/logout", (req, res) => {
 });
 
 // Get all connected accounts
-app.get("/accounts", (req, res) => {
+app.get("/accounts", (req: any, res: any) => {
   const accounts = activeConnections.map((conn) => ({
     accountId: conn.accountId,
+    name: conn.account.name,
+    login: conn.account.login,
+    server: conn.account.server,
+    platform: conn.account.platform,
     connected: conn.connection.terminalState.connected,
     connectedToBroker: conn.connection.terminalState.connectedToBroker,
-    accountInfo: conn.connection.terminalState.accountInformation,
+    accountInfo: conn.connection.terminalState?.accountInformation || {},
+    positions: conn.connection.terminalState?.positions || [],
+    orders: conn.connection.terminalState?.orders || [],
   }));
 
   res.json(accounts);
 });
 
 // Get specific account details
-app.get("/accounts/:accountId", (req, res) => {
+app.get("/accounts/:accountId", (req: any, res: any) => {
   const { accountId } = req.params;
   const connection = activeConnections.find(
     (conn) => conn.accountId === accountId
@@ -481,7 +544,7 @@ app.get("/accounts/:accountId", (req, res) => {
 });
 
 // Get account positions
-app.get("/accounts/:accountId/positions", (req, res) => {
+app.get("/accounts/:accountId/positions", (req: any, res: any) => {
   const { accountId } = req.params;
   const connection = activeConnections.find(
     (conn) => conn.accountId === accountId
@@ -496,7 +559,7 @@ app.get("/accounts/:accountId/positions", (req, res) => {
 });
 
 // Get account orders
-app.get("/accounts/:accountId/orders", (req, res) => {
+app.get("/accounts/:accountId/orders", (req: any, res: any) => {
   const { accountId } = req.params;
   const connection = activeConnections.find(
     (conn) => conn.accountId === accountId
@@ -511,7 +574,7 @@ app.get("/accounts/:accountId/orders", (req, res) => {
 });
 
 // Get account order history - simplified approach using in-memory storage
-app.get("/accounts/:accountId/order-history", (req, res) => {
+app.get("/accounts/:accountId/order-history", (req: any, res: any) => {
   const { accountId } = req.params;
   const connection = activeConnections.find(
     (conn) => conn.accountId === accountId
@@ -530,33 +593,39 @@ app.get("/accounts/:accountId/order-history", (req, res) => {
 
     // Apply filters if provided
     if (startDate) {
-      history = history.filter((order) => order.completedAt >= startDate);
+      history = history.filter((order: any) => order.completedAt >= startDate);
     }
 
     if (endDate) {
-      history = history.filter((order) => order.completedAt <= endDate);
+      history = history.filter((order: any) => order.completedAt <= endDate);
     }
 
     if (symbol) {
-      history = history.filter((order) => order.symbol === symbol);
+      history = history.filter((order: any) => order.symbol === symbol);
     }
 
     if (type) {
-      history = history.filter((order) => order.type === type);
+      history = history.filter((order: any) => order.type === type);
     }
 
     // Sort by completion date (newest first)
-    history.sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt));
+    history.sort(
+      (a: any, b: any) =>
+        new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime()
+    );
 
     res.json(history);
   } catch (error) {
     console.error(`Error fetching history for account ${accountId}:`, error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({
+      error:
+        error instanceof Error ? error.message : "An unknown error occurred",
+    });
   }
 });
 
 // Add deal history endpoint using in-memory storage
-app.get("/accounts/:accountId/deal-history", (req, res) => {
+app.get("/accounts/:accountId/deal-history", (req: any, res: any) => {
   const { accountId } = req.params;
   const connection = activeConnections.find(
     (conn) => conn.accountId === accountId
@@ -575,23 +644,26 @@ app.get("/accounts/:accountId/deal-history", (req, res) => {
 
     // Apply filters if provided
     if (startDate) {
-      deals = deals.filter((deal) => deal.recordedAt >= startDate);
+      deals = deals.filter((deal: any) => deal.recordedAt >= startDate);
     }
 
     if (endDate) {
-      deals = deals.filter((deal) => deal.recordedAt <= endDate);
+      deals = deals.filter((deal: any) => deal.recordedAt <= endDate);
     }
 
     if (symbol) {
-      deals = deals.filter((deal) => deal.symbol === symbol);
+      deals = deals.filter((deal: any) => deal.symbol === symbol);
     }
 
     if (type) {
-      deals = deals.filter((deal) => deal.type === type);
+      deals = deals.filter((deal: any) => deal.type === type);
     }
 
     // Sort by recorded date (newest first)
-    deals.sort((a, b) => new Date(b.recordedAt) - new Date(a.recordedAt));
+    deals.sort(
+      (a: any, b: any) =>
+        new Date(b.recordedAt).getTime() - new Date(a.recordedAt).getTime()
+    );
 
     res.json(deals);
   } catch (error) {
@@ -599,12 +671,15 @@ app.get("/accounts/:accountId/deal-history", (req, res) => {
       `Error fetching deal history for account ${accountId}:`,
       error
     );
-    res.status(500).json({ error: error.message });
+    res.status(500).json({
+      error:
+        error instanceof Error ? error.message : "An unknown error occurred",
+    });
   }
 });
 
 // Add and connect to a new account
-app.post("/accounts", async (req, res) => {
+app.post("/accounts", async (req: any, res: any) => {
   const { login, server, password, name } = req.body;
 
   if (!login || !server || !password) {
@@ -622,6 +697,7 @@ app.post("/accounts", async (req, res) => {
         server,
         password,
         name: name || `${login}@${server}`,
+        //@ts-ignore
         type: "cloud",
         platform: "mt5",
         magic: 1000,
@@ -632,7 +708,7 @@ app.post("/accounts", async (req, res) => {
       console.log(`Created new account with id ${accountId}`);
     } catch (err) {
       console.error("Error creating account:", err);
-      return res.status(500).json({ error: err.message });
+      return res.status(500).json({ error: (err as any).message });
     }
 
     // Check if account is already connected
@@ -663,12 +739,12 @@ app.post("/accounts", async (req, res) => {
     }
   } catch (err) {
     console.error("Error adding account:", err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: (err as any).message });
   }
 });
 
 // Disconnect from an account
-app.delete("/accounts/:accountId", async (req, res) => {
+app.delete("/accounts/:accountId", async (req: any, res: any) => {
   const { accountId } = req.params;
 
   try {
@@ -683,15 +759,21 @@ app.delete("/accounts/:accountId", async (req, res) => {
     }
   } catch (err) {
     console.error(`Error disconnecting account ${accountId}:`, err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: (err as any).message });
   }
 });
 
 // Legacy endpoint for backward compatibility
-app.post("/add-account", async (req, res) => {
+app.post("/add-account", async (req: any, res: any) => {
   const { login, server, password } = req.body;
 
   try {
+    if (!login || !server || !password) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+    if (activeConnections.some((conn) => conn.account.login === login)) {
+      return res.status(400).json({ error: "Account already exists" });
+    }
     // Create account if it doesn't exist
     const newAccount = await api.metatraderAccountApi.createAccount({
       login,
@@ -700,6 +782,7 @@ app.post("/add-account", async (req, res) => {
       name: `${login}@${server}`,
       platform: "mt5",
       application: "MetaApi",
+      //@ts-ignore
       type: "cloud",
       magic: 1000,
     });
@@ -712,7 +795,25 @@ app.post("/add-account", async (req, res) => {
     res.status(200).send("Account added");
   } catch (err) {
     console.error("Error in /add-account:", err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "An unknown error occurred",
+    });
+  }
+});
+
+// Add endpoint to refresh and connect to all MetaAPI accounts
+app.post("/refresh-accounts", async (req: any, res: any) => {
+  try {
+    await fetchAndConnectAllAccounts();
+    res.status(200).json({
+      message: "Refreshed accounts from MetaAPI",
+      connectedAccounts: activeConnections.length,
+    });
+  } catch (err) {
+    console.error("Error refreshing accounts:", err);
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "An unknown error occurred",
+    });
   }
 });
 
