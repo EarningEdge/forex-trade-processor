@@ -6,7 +6,7 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node dist/index.js",
     "dev": "tsc && nodemon dist/index.js",
-    "build": "tsc"
+    "build": "npm i --save-dev typescript && npx tsc"
   },
   "keywords": [],
   "author": "",
@@ -19,13 +19,15 @@
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.2",
-    "metaapi.cloud-sdk": "^29.0.2"
+    "metaapi.cloud-sdk": "^29.0.2",
+    "tsc": "^2.0.4"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.1",
     "@types/jsonwebtoken": "^9.0.9",
     "@types/ws": "^8.18.0",
-    "nodemon": "^3.1.9"
+    "nodemon": "^3.1.9",
+    "typescript": "^5.8.2"
   }
 }
