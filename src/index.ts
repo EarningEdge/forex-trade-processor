@@ -3,7 +3,6 @@ import express, { Request, Response } from "express";
 import cors from "cors";
 import WebSocket from "ws";
 import jwt from "jsonwebtoken";
-import cookie from "cookie";
 import MetaApi from "metaapi.cloud-sdk";
 
 const app = express();
@@ -122,6 +121,73 @@ class OrderSyncListener {
         })
       );
     });
+  }
+  onPositionsSynchronized(positions: any) {
+    console.log(
+      `[Account: ${this.accountId}] Positions synchronized:`,
+      positions
+    );
+  }
+  onHistoryOrderAdded(order: any) {
+    console.log(`[Account: ${this.accountId}] History order added:`, order);
+  }
+  onHealthStatus(healthStatus: any) {
+    console.log(
+      `[Account: ${this.accountId}] Health status updated:`,
+      healthStatus
+    );
+  }
+  onDealsSynchronized(deals: any) {
+    console.log(`[Account: ${this.accountId}] Deals synchronized:`, deals);
+  }
+  onHistoryOrdersSynchronized(orders: any) {
+    console.log(
+      `[Account: ${this.accountId}] History orders synchronized:`,
+      orders
+    );
+  }
+  onPendingOrdersReplaced(orders: any) {
+    console.log(
+      `[Account: ${this.accountId}] Pending orders replaced:`,
+      orders
+    );
+  }
+  onPendingOrdersSynchronized(orders: any) {
+    console.log(
+      `[Account: ${this.accountId}] Pending orders synchronized:`,
+      orders
+    );
+  }
+  onPositionsReplaced(orders: any) {
+    console.log(
+      `[Account: ${this.accountId}] Pending orders replaced:`,
+      orders
+    );
+  }
+
+  onBrokerConnectionStatusChanged(status: any) {
+    console.log(
+      `[Account: ${this.accountId}] Broker connection status changed:`,
+      status
+    );
+  }
+  onSymbolSpecificationUpdated(symbol: any) {
+    console.log(
+      `[Account: ${this.accountId}] Symbol specification updated:`,
+      symbol
+    );
+  }
+  onSymbolSpecificationsUpdated(symbol: any) {
+    console.log(
+      `[Account: ${this.accountId}] Symbol specifications updated:`,
+      symbol
+    );
+  }
+  onSynchronizationStarted() {
+    console.log(`[Account: ${this.accountId}] Synchronization started`);
+  }
+  onSynchronizationStopped() {
+    console.log(`[Account: ${this.accountId}] Synchronization stopped`);
   }
 
   onDealAdded(dealId: string, deal: any) {
@@ -438,12 +504,13 @@ app.post("/login", (req: Request, res: any) => {
       expiresIn: "3d", // Set JWT expiration to 3 days
     });
 
-    return res.status(200).json({ message: "Authenticated successfully", token });
+    return res
+      .status(200)
+      .json({ message: "Authenticated successfully", token });
   }
 
   return res.status(401).json({ message: "Invalid credentials" });
 });
-
 
 //logout endpoint and to set the jwt age to 0 (the token will be removed from cookie)
 app.post("/logout", (req: any, res: any) => {
