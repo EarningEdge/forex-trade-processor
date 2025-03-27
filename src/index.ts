@@ -47,7 +47,7 @@ wss.on("connection", (ws) => {
 app.use(express.json());
 app.use(
   cors({
-    origin: process.env.NEXT_FRONTEND_URL,
+    origin: "*",
     credentials: true,
   })
 );
